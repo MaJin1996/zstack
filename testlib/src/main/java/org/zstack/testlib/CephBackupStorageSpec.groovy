@@ -2,6 +2,7 @@ package org.zstack.testlib
 
 import org.springframework.http.HttpEntity
 import org.zstack.core.db.Q
+import org.zstack.header.agent.AgentResponse
 import org.zstack.storage.ceph.backup.CephBackupStorageBase
 import org.zstack.storage.ceph.backup.CephBackupStorageMonBase
 import org.zstack.storage.ceph.backup.CephBackupStorageMonVO
@@ -66,7 +67,9 @@ class CephBackupStorageSpec extends BackupStorageSpec {
         }
 
         simulator(CephBackupStorageMonBase.PING_PATH) {
-            return new CephPrimaryStorageMonBase.PingRsp()
+            CephBackupStorageMonBase.PingRsp rsp = new CephBackupStorageMonBase.PingRsp()
+            rsp.success = true
+            return rsp
         }
 
         simulator(CephBackupStorageBase.GET_IMAGE_SIZE_PATH) {

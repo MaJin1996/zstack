@@ -1119,10 +1119,23 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
             createEmptyVolume(msg);
         }
     }
-
-    protected void checkBitsIsExisting(ImageCacheVO cache, String HostUuid, final ReturnValueCompletion<Boolean> completion ){
+/*
+    protected void checkBitsIsExisting(ImageCacheVO cache, final ReturnValueCompletion<Boolean> completion ){
         final CheckIsBitsExistingCmd cmd = new CheckIsBitsExistingCmd();
+        logger.debug("in checkbits");
         cmd.setInstallPath(cache.getInstallUrl());
+        httpCall(CHECK_BITS_PATH, cmd, CheckIsBitsExistingRsp.class, new ReturnValueCompletion<CheckIsBitsExistingRsp>(null) {
+            @Override
+            public void success(CheckIsBitsExistingRsp returnValue) {
+
+            }
+
+            @Override
+            public void fail(ErrorCode errorCode) {
+
+            }
+        });
+        /*
         String suuid = CephSystemTags.KVM_SECRET_UUID.getTokenByResourceUuid(self.getUuid(), CephSystemTags.KVM_SECRET_UUID_TOKEN);
         DebugUtils.Assert(suuid != null, String.format("cannot find system tag[%s] for ceph primary storage[uuid:%s]", CephSystemTags.KVM_SECRET_UUID.getTagFormat(), self.getUuid()));
         cmd.setUuid(suuid);
@@ -1134,16 +1147,22 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
         msg.setHostUuid(HostUuid);
         msg.setCommandTimeout(timeoutMgr.getTimeout(cmd.getClass(), "5m"));
         bus.makeTargetServiceIdByResourceUuid(msg, HostConstant.SERVICE_ID, HostUuid);
+        logger.debug("ready to send kvmmsg");
         bus.send(msg, new CloudBusCallBack(completion) {
             @Override
             public void run(MessageReply reply) {
+                /*
+                logger.debug("is in kvm call back");
                 if (!reply.isSuccess()) {
+                    logger.debug("kvm reply is fail");
                     completion.fail(reply.getError());
                     return;
-                }
+                }//
+
 
                 CheckIsBitsExistingRsp rsp = ((KVMHostAsyncHttpCallReply) reply).toResponse(CheckIsBitsExistingRsp.class);
-                if (!rsp.isSuccess()) {
+                if (!rsp.isExisting()) {
+                    logger.debug("image not found");
                     completion.fail(errf.stringToOperationError(
                             String.format("failed to check existence of %s on ceph primary storage[uuid:%s], %s",
                                     cache.getInstallUrl(), cache.getPrimaryStorageUuid(), rsp.getError())
@@ -1151,17 +1170,25 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
 
                     return;
                 }
+                logger.debug("image is found");
                 completion.success(rsp.isExisting());
             }
         });
 
-    }
+    }*/
 
     class DownloadToCache {
         ImageSpec image;
-        String HostUuid;
-        private void doDownload(final ReturnValueCompletion<ImageCacheVO> completion, String ...HostUuid) {
-
+        //String HostUuid;
+        private void doDownload(final ReturnValueCompletion<ImageCacheVO> completion) {
+            SimpleQuery<ImageCacheVO> q = dbf.createQuery(ImageCacheVO.class);
+            q.add(ImageCacheVO_.imageUuid, Op.EQ, image.getInventory().getUuid());
+            q.add(ImageCacheVO_.primaryStorageUuid, Op.EQ, self.getUuid());
+            ImageCacheVO cache = q.find();
+            if (cache != null) {
+                completion.success(cache);
+                return;
+            }
             final FlowChain chain = FlowChainBuilder.newShareFlowChain();
             chain.setName(String.format("prepare-image-cache-ceph-%s", self.getUuid()));
             chain.then(new ShareFlow() {
@@ -1368,20 +1395,30 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
 
                 @Override
                 public void run(final SyncTaskChain chain) {
+                    logger.debug("start download chain");
                     SimpleQuery<ImageCacheVO> q = dbf.createQuery(ImageCacheVO.class);
                     q.add(ImageCacheVO_.imageUuid, Op.EQ, image.getInventory().getUuid());
                     q.add(ImageCacheVO_.primaryStorageUuid, Op.EQ, self.getUuid());
                     ImageCacheVO cache = q.find();
-                    if (cache != null && HostUuid != null){
-                        checkBitsIsExisting(cache, HostUuid, new ReturnValueCompletion<Boolean>(completion) {
+                    if (cache != null ){
+                        logger.debug("checkBits");
+                        final CheckIsBitsExistingCmd cmd = new CheckIsBitsExistingCmd();
+                        cmd.setInstallPath(cache.getInstallUrl());
+                        httpCall(CHECK_BITS_PATH, cmd, CheckIsBitsExistingRsp.class, new ReturnValueCompletion<CheckIsBitsExistingRsp>(null) {
                             @Override
-                            public void success(Boolean returnValue) {
-                                if (returnValue) {
-                                    completion.success(cache);
-                                    return;
-                                }
+                            public void success(CheckIsBitsExistingRsp returnValue) {
+                                logger.debug("ready to success(cache)");
+                                completion.success(cache);
+                                return;
+
+                            }
+
+                            @Override
+                            public void fail(ErrorCode errorCode) {
+                                //completion.fail(errorCode);
                                 // the image is removed on the host
                                 // delete the cache object and re-download it
+                                logger.debug(errorCode.getDescription());
                                 SimpleQuery<ImageCacheVO> q = dbf.createQuery(ImageCacheVO.class);
                                 q.add(ImageCacheVO_.primaryStorageUuid, Op.EQ, self.getUuid());
                                 q.add(ImageCacheVO_.imageUuid, Op.EQ, image.getInventory().getUuid());
@@ -1393,6 +1430,7 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
                                 bus.makeTargetServiceIdByResourceUuid(rmsg, PrimaryStorageConstant.SERVICE_ID, cvo.getPrimaryStorageUuid());
                                 bus.send(rmsg);
                                 dbf.remove(cvo);
+                                logger.debug("ready to download chain");
 
                                 doDownload(new ReturnValueCompletion<ImageCacheVO>(chain) {
                                     @Override
@@ -1407,19 +1445,25 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
                                         chain.next();
                                     }
                                 });
+                            }
+                        });
 
-
+                    }else{
+                        logger.debug("ready to download chain");
+                        doDownload(new ReturnValueCompletion<ImageCacheVO>(chain) {
+                            @Override
+                            public void success(ImageCacheVO returnValue) {
+                                completion.success(returnValue);
+                                chain.next();
                             }
 
                             @Override
                             public void fail(ErrorCode errorCode) {
                                 completion.fail(errorCode);
+                                chain.next();
                             }
                         });
-
                     }
-
-
 
                 }
 
@@ -1619,8 +1663,9 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
     protected void handle(final DownloadIsoToPrimaryStorageMsg msg) {
         final DownloadIsoToPrimaryStorageReply reply = new DownloadIsoToPrimaryStorageReply();
         DownloadToCache downloadToCache = new DownloadToCache();
+        logger.debug("Ceph have receive Downloadmsg\n");
         downloadToCache.image = msg.getIsoSpec();
-        downloadToCache.HostUuid = msg.getDestHostUuid();
+        //downloadToCache.HostUuid = msg.getDestHostUuid();
         downloadToCache.download(new ReturnValueCompletion<ImageCacheVO>(msg) {
             @Override
             public void success(ImageCacheVO returnValue) {
@@ -1630,6 +1675,7 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
 
             @Override
             public void fail(ErrorCode errorCode) {
+
                 reply.setError(errorCode);
                 bus.reply(msg, reply);
             }
@@ -2410,15 +2456,7 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
         public String password;
     }
     public static class CheckIsBitsExistingRsp extends AgentResponse {
-        private boolean existing;
 
-        public boolean isExisting() {
-            return existing;
-        }
-
-        public void setExisting(boolean existing) {
-            this.existing = existing;
-        }
     }
 
     private void handle(DeleteImageCacheOnPrimaryStorageMsg msg) {

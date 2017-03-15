@@ -65,7 +65,7 @@ public class TestNicQosMixed {
     }
 
     @Test
-    public void test() throws ApiSenderException {
+    public void test() throws ApiSenderException, InterruptedException {
         //1. create a vm with qos
         VmInstanceInventory vm = deployer.vms.get("Vm_1");
 

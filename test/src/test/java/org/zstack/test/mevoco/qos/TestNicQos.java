@@ -21,6 +21,7 @@ import org.zstack.utils.logging.CLogger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by mingjian.deng on 16/12/20.
@@ -54,7 +55,7 @@ public class TestNicQos {
     }
 
     @Test
-    public void test() throws ApiSenderException {
+    public void test() throws ApiSenderException, InterruptedException {
         VmInstanceInventory vm = deployer.vms.get("TestVm");
         String defaultL3Uuid = vm.getDefaultL3NetworkUuid();
         SimpleQuery<VmNicVO> q = dbf.createQuery(VmNicVO.class);
@@ -64,7 +65,7 @@ public class TestNicQos {
 
         List<String> names = new ArrayList<>();
         names.add("test1");
-
+        logger.debug("step1");
         // 1. set the qos and check it
         try {
             api.setVmNicQos(srcNicUuid, 8191l, 2048000l);
@@ -88,7 +89,7 @@ public class TestNicQos {
         reply = api.getVmNicQos(srcNicUuid);
         Assert.assertTrue(reply.isSuccess());
         Assert.assertEquals(1024000l, reply.getOutboundBandwidth());
-
+        logger.debug("step2");
         // 2. clone it and check the qos as origin vm
         CloneVmInstanceResults res = creator.cloneVm(names, vm.getUuid());
         q = dbf.createQuery(VmNicVO.class);
@@ -98,7 +99,7 @@ public class TestNicQos {
         Assert.assertTrue(reply.isSuccess());
         Assert.assertEquals(8192l, reply.getInboundBandwidth());
         Assert.assertEquals(1024000l, reply.getOutboundBandwidth());
-
+        logger.debug("step3");
         // 3. delete the qos and check it
         APIDeleteNicQosEvent event = api.deleteVmNicQos(srcNicUuid, "in");
         Assert.assertTrue(event.isSuccess());
@@ -112,7 +113,7 @@ public class TestNicQos {
         Assert.assertTrue(event.isSuccess());
         SystemTagVO tvo = dbf.findByUuid(srcNicUuid, SystemTagVO.class);
         Assert.assertNull(tvo);
-
+        logger.debug("step4");
         // 4. clone it and check the qos as origin vm
         res = creator.cloneVm(names, vm.getUuid());
         q = dbf.createQuery(VmNicVO.class);

@@ -70,7 +70,7 @@ public class TestVolumeQosMixed {
     }
 
     @Test
-    public void test() throws ApiSenderException {
+    public void test() throws ApiSenderException, InterruptedException {
         //1. create a vm with qos
         VmInstanceInventory vm = deployer.vms.get("Vm_1");
         String rootVolumeUuid = vm.getRootVolumeUuid();
@@ -118,7 +118,6 @@ public class TestVolumeQosMixed {
         event = api.setDiskQos(rootVolumeUuid, 20000l);
         Assert.assertTrue(event.isSuccess());
         res = creator.cloneVm(names, vm.getUuid());
-
         reply = api.getVmDiskQos(rootVolumeUuid);
         Assert.assertTrue(reply.isSuccess());
         Assert.assertEquals(20000l, reply.getVolumeBandwidth());

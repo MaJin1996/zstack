@@ -20,6 +20,7 @@ import org.zstack.test.VmCreator;
 import org.zstack.test.deployer.Deployer;
 import org.zstack.utils.Utils;
 import org.zstack.utils.logging.CLogger;
+import sun.reflect.generics.reflectiveObjects.LazyReflectiveObjectGenerator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -55,7 +56,7 @@ public class TestVolumeQos {
     }
 
     @Test
-    public void test() throws ApiSenderException {
+    public void test() throws ApiSenderException, InterruptedException {
         VmInstanceInventory vm = deployer.vms.get("TestVm");
         String rootVolumeUuid = vm.getRootVolumeUuid();
         List<String> names = new ArrayList<>();
@@ -77,10 +78,11 @@ public class TestVolumeQos {
 
         // 2. clone it and check the qos as origin vm
         CloneVmInstanceResults res = creator.cloneVm(names, vm.getUuid());
+        logger.debug("step2");
         reply = api.getVmDiskQos(res.getInventories().get(0).getInventory().getRootVolumeUuid());
         Assert.assertTrue(reply.isSuccess());
         Assert.assertEquals(1024l, reply.getVolumeBandwidth());
-
+        logger.debug("step3");
         // 3. delete the qos and check it
         APIDeleteVolumeQosEvent event = api.deleteDiskQos(rootVolumeUuid);
         Assert.assertTrue(event.isSuccess());
@@ -90,7 +92,7 @@ public class TestVolumeQos {
 
         SystemTagVO tvo = dbf.findByUuid(rootVolumeUuid, SystemTagVO.class);
         Assert.assertNull(tvo);
-
+        logger.debug("step4");
         // 4. clone it and check the qos as origin vm
         res = creator.cloneVm(names, vm.getUuid());
         reply = api.getVmDiskQos(res.getInventories().get(0).getInventory().getRootVolumeUuid());

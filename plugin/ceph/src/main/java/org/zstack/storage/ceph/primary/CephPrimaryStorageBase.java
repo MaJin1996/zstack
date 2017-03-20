@@ -5,6 +5,7 @@ import org.zstack.core.Platform;
 import org.zstack.core.cloudbus.CloudBusCallBack;
 import org.zstack.core.cloudbus.CloudBusListCallBack;
 import org.zstack.core.db.Q;
+import org.zstack.core.db.SQLBatch;
 import org.zstack.core.db.SimpleQuery;
 import org.zstack.core.db.SimpleQuery.Op;
 import org.zstack.core.thread.AsyncThread;
@@ -50,6 +51,8 @@ import org.zstack.storage.backup.sftp.GetSftpBackupStorageDownloadCredentialRepl
 import org.zstack.storage.backup.sftp.SftpBackupStorageConstant;
 import org.zstack.storage.ceph.*;
 import org.zstack.storage.ceph.CephMonBase.PingResult;
+import org.zstack.storage.ceph.backup.CephBackupStorageMonBase;
+import org.zstack.storage.ceph.backup.CephBackupStorageMonVO;
 import org.zstack.storage.ceph.backup.CephBackupStorageVO;
 import org.zstack.storage.ceph.backup.CephBackupStorageVO_;
 import org.zstack.storage.ceph.primary.CephPrimaryStorageMonBase.PingOperationFailure;
@@ -2962,6 +2965,11 @@ public class CephPrimaryStorageBase extends PrimaryStorageBase {
                 throw new OperationFailureException(completion.getErrorCode());
             }
         }
+        String fsid = getSelf().getFsid();
+        if(Q.New(CephBackupStorageVO.class).eq(CephBackupStorageVO_.fsid, fsid).find() == null){
+            dbf.removeByPrimaryKey(fsid, CephCapacityVO.class);
+        }
         dbf.removeCollection(getSelf().getMons(), CephPrimaryStorageMonVO.class);
+
     }
 }

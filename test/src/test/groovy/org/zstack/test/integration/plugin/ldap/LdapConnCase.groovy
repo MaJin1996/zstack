@@ -27,9 +27,9 @@ import java.util.concurrent.TimeUnit
 class LdapConnCase extends SubCase {
     EnvSpec env
     public static final String DOMAIN_DSN = "dc=example,dc=com"
-    @Rule
-    public EmbeddedLdapRule embeddedLdapRule = EmbeddedLdapRuleBuilder.newInstance().bindingToPort(1888).
-            usingDomainDsn(DOMAIN_DSN).importingLdifs("users-import.ldif").build()
+    //@Rule
+    //public EmbeddedLdapRule embeddedLdapRule = EmbeddedLdapRuleBuilder.newInstance().bindingToPort(1888).
+    //        usingDomainDsn(DOMAIN_DSN).importingLdifs("users-import.ldif").build()
 
     @Override
     void setup() {
@@ -55,13 +55,15 @@ class LdapConnCase extends SubCase {
 
     @Override
     void clean() {
+        assert false
         env.delete()
     }
 
     void testLdapConn(){
-        final LDAPInterface ldapConnection = embeddedLdapRule.ldapConnection()
-        final SearchResult searchResult = ldapConnection.search(DOMAIN_DSN, SearchScope.SUB, "(objectClass=person)")
-        Assert.assertEquals(3, searchResult.getEntryCount())
+        assert false
+        //final LDAPInterface ldapConnection = embeddedLdapRule.ldapConnection()
+        //final SearchResult searchResult = ldapConnection.search(DOMAIN_DSN, SearchScope.SUB, "(objectClass=person)")
+        //Assert.assertEquals(3, searchResult.getEntryCount())
 
 
         def result = addLdapServer {

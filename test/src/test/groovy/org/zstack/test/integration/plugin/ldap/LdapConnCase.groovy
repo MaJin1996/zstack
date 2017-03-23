@@ -44,6 +44,7 @@ class LdapConnCase extends SubCase {
 
     @Override
     void environment() {
+        /*
         env = env{
             instanceOffering {
                 name = "instanceOffering"
@@ -129,7 +130,8 @@ class LdapConnCase extends SubCase {
                 useHost("host")
             }
         }
-
+        */
+        env = Env.localStorageOneVmEnv()
     }
 
     @Override

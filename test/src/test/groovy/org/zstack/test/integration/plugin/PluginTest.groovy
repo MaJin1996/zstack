@@ -16,11 +16,15 @@ class PluginTest  extends Test {
         kvm()
         localStorage()
         sftpBackupStorage()
+        include("LdapManagerImpl.xml")
+        include("vip.xml")
+        securityGroup()
     }
 
     @Override
     void setup() {
         useSpring(springSpec)
+
     }
 
     @Override

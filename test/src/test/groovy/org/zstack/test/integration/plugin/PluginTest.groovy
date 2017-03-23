@@ -16,9 +16,9 @@ class PluginTest  extends Test {
         kvm()
         localStorage()
         sftpBackupStorage()
-        include("LdapManagerImpl.xml")
-        include("vip.xml")
-        securityGroup()
+        //include("LdapManagerImpl.xml")
+        //include("vip.xml")
+        //securityGroup()
     }
 
     @Override

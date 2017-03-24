@@ -1,5 +1,7 @@
 package org.zstack.test.integration.core.job
 
+
+import org.zstack.core.job.Job
 import org.zstack.core.job.JobQueueFacade
 import org.zstack.header.core.Completion
 import org.zstack.header.core.NopeCompletion
@@ -21,12 +23,13 @@ class FakeJobCase extends SubCase{
     JobQueueFacade jobf
     long num1 = 50
     long num2 = 10
-    int num3 = 1000
+    int num3 = 100
     long num4 = 10
 
     @Override
     void setup() {
         INCLUDE_CORE_SERVICES = false
+
         spring {
             include("JobForUnitTest.xml")
         }
@@ -34,13 +37,13 @@ class FakeJobCase extends SubCase{
 
     @Override
     void environment() {
-
+        conf = bean(FakeJobConfig.class)
+        jobf = bean(JobQueueFacade.class)
     }
 
     @Override
     void test() {
-        conf = bean(FakeJobConfig.class)
-        jobf = bean(JobQueueFacade.class)
+
         TestJob()
         TestJob2()
         TestJobReturnValue()
@@ -50,11 +53,13 @@ class FakeJobCase extends SubCase{
     void clean() {
 
     }
-    private void startJob(FakeJob job){
+
+    private void startJob(Job job){
         startJob(job, new NopeCompletion())
     }
 
-    private void startJob(FakeJob job, Completion completion){
+    private void startJob(Job job, Completion completion){
+
         startJob(job, new ReturnValueCompletion<Object>(completion) {
             @Override
             public void success(Object returnValue) {
@@ -68,25 +73,15 @@ class FakeJobCase extends SubCase{
         },null)
     }
 
-    private <T> void startJob(FakeJob job,  ReturnValueCompletion<T> complete, Class<? extends T> returnType){
+    private <T> void startJob(Job job,  ReturnValueCompletion<T> complete, Class<? extends T> returnType){
         jobf.execute("fake-job", "TestJob", job, complete, returnType)
     }
 
 
     void TestJob(){
-
+        FakeJobConfig conf = new FakeJobConfig()
         for (long i = 0; i < num1; i++) {
-            startJob(new FakeJob(i) {
-                @Override
-                void run(ReturnValueCompletion<Object> completion){
-                    try {
-                        logger.debug(String.format("job %s is executing", index))
-                        conf.indexs.add(i)
-                    } finally {
-                        completion.success(null)
-                    }
-                }
-            })
+            startJob(new FakeJob(i,conf))
         }
 
         TimeUnit.SECONDS.sleep(15)
@@ -102,25 +97,7 @@ class FakeJobCase extends SubCase{
     void TestJob2(){
         conf.success = true
         for (long i = 0; i < num2; i++) {
-            startJob(new FakeJob() {
-                @Override
-                void run(ReturnValueCompletion<Object> completion) {
-                    try {
-                        conf.flag = new Random().nextInt()
-                        int v = conf.flag
-                        try {
-                            TimeUnit.MILLISECONDS.sleep(500)
-                        } catch (InterruptedException e) {
-                            logger.warn(e.getMessage(), e)
-                        }
-                        if (v != conf.flag) {
-                            conf.success = false
-                        }
-                    } finally {
-                        completion.success(null)
-                    }
-                }
-            })
+            startJob(new FakeJob2(conf))
         }
 
         TimeUnit.SECONDS.sleep(15)
@@ -133,16 +110,7 @@ class FakeJobCase extends SubCase{
         CountDownLatch latch = new CountDownLatch(num3)
 
         for (long i = 0; i < num3; i++) {
-            startJob(new FakeJob(i) {
-                @Override
-                void run(ReturnValueCompletion<Object> completion) {
-                    try {
-                        logger.debug(String.format("job %s is executing", index))
-                    } finally {
-                        completion.success(i)
-                    }
-                }
-            }, new ReturnValueCompletion<Long>(null) {
+            startJob(new FakeJobReturnValue(i, conf), new ReturnValueCompletion<Long>(null) {
                 @Override
                 public void success(Long returnValue) {
                     logger.debug(String.format("get return value[%s]", returnValue));
@@ -170,13 +138,7 @@ class FakeJobCase extends SubCase{
         int retGot = 0
 
         for (long i = 0; i < num4; i++) {
-            startJob(new FakeJob(i) {
-                @Override
-                void run(ReturnValueCompletion<Object> completion) {
-                    logger.debug(String.format("job %s is executing", index))
-                    completion.fail(errf.stringToOperationError("fail on purpose"))
-                }
-            }, new ReturnValueCompletion<Long>(null) {
+            startJob(new FakeJobReturnValueFail(i, conf), new ReturnValueCompletion<Long>(null) {
                 @Override
                 public void success(Long returnValue) {
                     logger.debug(String.format("job[%s] unwanted success", returnValue))

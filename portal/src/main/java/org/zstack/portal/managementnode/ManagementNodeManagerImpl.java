@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 import static org.zstack.utils.ExceptionDSL.throwableSafe;
 
@@ -887,6 +888,18 @@ public class ManagementNodeManagerImpl extends AbstractService implements Manage
     @Override
     public void quit(String reason) {
         logger.debug(String.format("stopping the management node because %s", reason));
+        System.out.println("test message");
+        systemLog(reason);
         stop();
+    }
+
+    private void systemLog(String reason){
+        String regEx1 = ".*http.*\\..*:9090/.*";
+        String regEx2 = ".*http.*,.*:9090/.*";
+        Pattern pattern1 = Pattern.compile(regEx1);
+        Pattern pattern2 = Pattern.compile(regEx2);
+        if(reason.contains("invalid Prometheus URL") && (pattern1.matcher(reason).find() || pattern2.matcher(reason).find())){
+            System.out.println("hostname cannot contain '.'or ','  ,Please use hostnamectl set-hostname NEWNAME to modify hostname");
+        }
     }
 }

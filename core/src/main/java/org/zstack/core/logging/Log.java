@@ -177,9 +177,9 @@ public class Log {
         }
 
         if (content.parameters != null) {
-            return Platform.toI18nString(content.text, logf.getBackend().getCurrentLocale(), content.parameters);
+            return Platform.i18n(content.text, logf.getBackend().getCurrentLocale(), content.parameters);
         } else {
-            return Platform.toI18nString(content.text, logf.getBackend().getCurrentLocale());
+            return Platform.i18n(content.text, logf.getBackend().getCurrentLocale());
         }
     }
 }

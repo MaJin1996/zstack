@@ -23,6 +23,7 @@ import java.util.*;
 public class StaticInitModule {
     private static final CLogger logger = Utils.getLogger(StaticInitModule.class);
 
+    @StaticInit
     public static void init() throws IllegalAccessException, IOException {
         Reflections reflections = Platform.getReflections();
 

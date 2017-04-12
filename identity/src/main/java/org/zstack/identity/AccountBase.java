@@ -468,6 +468,7 @@ public class AccountBase extends AbstractAccount {
                 svo.setOwnerAccountUuid(msg.getAccountUuid());
                 svo.setResourceType(uuidType.get(ruuid));
                 svo.setResourceUuid(ruuid);
+                svo.setReceiverAccountUuid("*");
                 svo.setToPublic(true);
                 vos.add(svo);
             }

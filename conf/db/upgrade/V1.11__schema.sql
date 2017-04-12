@@ -637,3 +637,12 @@ ALTER TABLE LocalStorageResourceRefVO DROP FOREIGN KEY `fkLocalStorageResourceRe
 
 ALTER TABLE VipVO ADD CONSTRAINT fkUsedIpVO FOREIGN KEY (`usedIpUuid`) REFERENCES `UsedIpVO` (`uuid`) ON DELETE CASCADE;
 
+ALTER TABLE SharedResourceVO DROP FOREIGN KEY `fkSharedResourceVOAccountVO1`;
+
+DELIMITER $$
+CREATE TRIGGER trigger_clean_SharedResourceVO_for_AccountVO AFTER DELETE ON `AccountVO`
+FOR EACH ROW
+    BEGIN
+        delete from `SharedResourceVO` where `receiverAccountUuid`=OLD.`uuid`;
+    END$$
+DELIMITER ;

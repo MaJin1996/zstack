@@ -58,6 +58,7 @@ import static org.zstack.core.Platform.operr;
 import javax.persistence.Tuple;
 import javax.persistence.TypedQuery;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -111,22 +112,16 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
         Future<ErrorCode> future = thdf.syncSubmit(new SyncTask<ErrorCode>() {
             @Override
             public ErrorCode call() throws Exception {
-                ErrorCode err = new NfsApiParamChecker().checkUrl(self.getZoneUuid(), newUrl);
-                if (err != null) {
-                    return err;
-                }
-
+                List <ErrorCode> errs = new ArrayList<>();
                 String oldUrl = self.getUrl();
-
-                checkRunningVmForUpdateUrl();
-                vo.setUrl(newUrl);
-                dbf.update(vo);
 
                 SimpleQuery<PrimaryStorageClusterRefVO> q = dbf.createQuery(PrimaryStorageClusterRefVO.class);
                 q.select(PrimaryStorageClusterRefVO_.clusterUuid);
                 q.add(PrimaryStorageClusterRefVO_.primaryStorageUuid, Op.EQ, self.getUuid());
                 List<String> cuuids = q.listValue();
                 if (cuuids.isEmpty()) {
+                    vo.setUrl(newUrl);
+                    dbf.update(vo);
                     return null;
                 }
 
@@ -158,6 +153,7 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
                                         logger.warn(String.format("failed to update the nfs[uuid:%s, name:%s] mount point" +
                                                         " from %s to %s in the cluster[uuid:%s], %s", self.getUuid(), self.getName(),
                                                 oldUrl, newUrl, item, errorCode));
+                                        errs.add(errorCode);
                                         completion.done();
                                     }
                                 });
@@ -167,13 +163,19 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
 
                     @Override
                     protected void done() {
-                        completion.success();
+                        if (errs.isEmpty()){
+                            completion.success();
+                        }else {
+                            completion.fail(errs.get(0));
+                        }
                     }
                 }.start();
 
                 completion.await();
 
                 if (completion.isSuccess()) {
+                    vo.setUrl(newUrl);
+                    dbf.update(vo);
                     return null;
                 } else {
                     return completion.getErrorCode();
@@ -207,31 +209,18 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
     }
 
     @Override
-    protected PrimaryStorageVO updatePrimaryStorage(APIUpdatePrimaryStorageMsg msg) {
-        PrimaryStorageVO vo = super.updatePrimaryStorage(msg);
-        vo = vo == null ? self : vo;
-
-        if (msg.getUrl() != null && !self.getUrl().equals(msg.getUrl())) {
-            updateMountPoint(vo, msg.getUrl());
+    protected void updatePrimaryStorage(APIUpdatePrimaryStorageMsg msg, Completion completion) {
+        if (msg.getName() != null) {
+            self.setName(msg.getName());
+        }
+        if (msg.getDescription() != null) {
+            self.setDescription(msg.getDescription());
         }
 
-        return vo;
-    }
-
-    @Transactional(readOnly = true)
-    private void checkRunningVmForUpdateUrl() {
-        String sql = "select vm.name, vm.uuid from VmInstanceVO vm, VolumeVO vol where vm.uuid = vol.vmInstanceUuid and" +
-                " vol.primaryStorageUuid = :psUuid and vm.state = :vmState";
-        TypedQuery<Tuple> q = dbf.getEntityManager().createQuery(sql, Tuple.class);
-        q.setParameter("psUuid", self.getUuid());
-        q.setParameter("vmState", VmInstanceState.Running);
-        List<Tuple> ts = q.getResultList();
-
-        if (!ts.isEmpty()) {
-            List<String> vms = ts.stream().map(v -> String.format("VM[name:%s, uuid:%s]", v.get(0, String.class), v.get(1, String.class))).collect(Collectors.toList());
-            throw new OperationFailureException(operr("there are %s running VMs on the NFS primary storage, please" +
-                    " stop them and try again:\n%s\n", vms.size(), StringUtils.join(vms, "\n")));
+        if (msg.getUrl() != null && !self.getUrl().equals(msg.getUrl())){
+            updateMountPoint(self, msg.getUrl());
         }
+        completion.success();
     }
 
     @Override

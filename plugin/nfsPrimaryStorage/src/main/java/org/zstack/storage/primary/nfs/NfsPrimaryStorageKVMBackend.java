@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.zstack.core.CoreGlobalProperty;
 import org.zstack.core.asyncbatch.AsyncBatchRunner;
 import org.zstack.core.asyncbatch.LoopAsyncBatch;
+import org.zstack.core.asyncbatch.While;
 import org.zstack.core.cloudbus.CloudBus;
 import org.zstack.core.cloudbus.CloudBusCallBack;
 import org.zstack.core.cloudbus.CloudBusListCallBack;
@@ -50,6 +51,7 @@ import org.zstack.utils.function.Function;
 import org.zstack.utils.gson.JSONObjectUtil;
 import org.zstack.utils.logging.CLogger;
 
+import static org.zstack.core.Platform.err;
 import static org.zstack.core.Platform.operr;
 
 import javax.persistence.Query;
@@ -160,9 +162,18 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
         query.add(HostVO_.status, Op.EQ, HostStatus.Connected);
         query.add(HostVO_.clusterUuid, Op.EQ, clusterUuid);
         List<String> hostUuids = query.listValue();
-        for (String huuid : hostUuids) {
-            mount(inv, huuid);
-        }
+
+        new While<>(hostUuids).all((hostUuid, completion) -> {
+            try{
+                mount(inv, hostUuid);
+            } finally {
+                completion.done();
+            }
+        }).run(new NoErrorCompletion() {
+            @Override
+            public void done() {
+            }
+        });
 
         return !hostUuids.isEmpty();
     }
@@ -639,9 +650,20 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
             return;
         }
 
-        for (PrimaryStorageVO pvo : ps) {
-            mount(PrimaryStorageInventory.valueOf(pvo), inv.getUuid());
-        }
+
+        List<Exception> es = new ArrayList<>();
+
+        new While<>(ps).all((pvo, completion) -> {
+            try{
+                mount(PrimaryStorageInventory.valueOf(pvo), inv.getUuid());
+            } finally {
+                completion.done();
+            }
+        }).run(new NoErrorCompletion() {
+            @Override
+            public void done() {
+            }
+        });
     }
 
     @Override
@@ -979,6 +1001,8 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
 
         String options = NfsSystemTags.MOUNT_OPTIONS.getTokenByResourceUuid(pinv.getUuid(), NfsSystemTags.MOUNT_OPTIONS_TOKEN);
 
+        List<ErrorCode> errs = new ArrayList<>();
+
         new LoopAsyncBatch<String>(completion) {
             @Override
             protected Collection<String> collect() {
@@ -1015,6 +1039,15 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
 
                             @Override
                             public void fail(ErrorCode errorCode) {
+                                if (errorCode.getDetails().contains("java.net.SocketTimeoutException: Read timed out")) {
+                                    errorCode = err(SysErrors.TIMEOUT, String.format("mount timeout. Please the check if the URL[%s] is" +
+                                            " valid to mount", newMountPoint), errorCode);
+                                    errs.add(errorCode);
+                                    //TODO
+                                } else if(errorCode.getDetails().contains("no such xxx //TODO")){
+                                    errorCode = operr(String.format("mount url not found, Please check if the URL[%s] exists", newMountPoint), errorCode);
+                                    errs.add(errorCode);
+                                }
                                 logger.warn(String.format("failed to update the nfs[uuid:%s, name:%s] mount point" +
                                                 " from %s to %s in the cluster[uuid:%s], %s", pinv.getUuid(), pinv.getName(),
                                         oldMountPoint, newMountPoint, hostUuid, errorCode));
@@ -1027,7 +1060,11 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
 
             @Override
             protected void done() {
-                completion.success();
+                if(errs.isEmpty()){
+                    completion.success();
+                } else {
+                    completion.fail(errs.get(0));
+                }
             }
         }.start();
     }

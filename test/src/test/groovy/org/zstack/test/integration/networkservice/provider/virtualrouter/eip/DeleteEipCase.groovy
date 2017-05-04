@@ -60,8 +60,6 @@ class DeleteEipCase extends SubCase{
             testAttachEipToVm()
             env.recreate("eip")
             testCreatePortForwarding()
-            env.recreate("eip")
-            testOnlyDeleteUsedIp()
         }
     }
 
@@ -145,31 +143,4 @@ class DeleteEipCase extends SubCase{
             }
         }.execute()
     }
-    void testOnlyDeleteUsedIp(){
-        EipInventory eipInv = env.inventoryByName("eip") as EipInventory
-        L3NetworkInventory l3Inv = env.inventoryByName("pubL3") as L3NetworkInventory
-        VipVO vipVO = dbFindByUuid(eipInv.vipUuid, VipVO.class)
-        CloudBus bus = bean(CloudBus.class)
-
-        ReturnIpMsg rmsg = new ReturnIpMsg()
-        rmsg.usedIpUuid = vipVO.usedIpUuid
-        rmsg.l3NetworkUuid = l3Inv.uuid
-        bus.makeTargetServiceIdByResourceUuid(rmsg, L3NetworkConstant.SERVICE_ID, l3Inv.uuid)
-        bus.send(rmsg, new CloudBusCallBack(null) {
-            @Override
-            void run(MessageReply reply) {
-                new SQLBatch(){
-                    @Override
-                    protected void scripts() {
-                        assert !q(EipVO.class).eq(EipVO_.uuid, eipInv.uuid).isExists()
-                        assert !q(VipVO.class).eq(VipVO_.uuid, vipVO.uuid).isExists()
-                        assert !q(UsedIpVO.class).eq(UsedIpVO_.uuid, vipVO.usedIpUuid).isExists()
-                    }
-                }.execute()
-            }
-        })
-
-
-    }
-
 }

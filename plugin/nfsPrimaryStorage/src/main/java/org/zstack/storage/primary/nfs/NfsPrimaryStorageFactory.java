@@ -203,24 +203,34 @@ public class NfsPrimaryStorageFactory implements NfsPrimaryStorageManager, Prima
     }
 
     @Transactional
-    public HostInventory getConnectedHostForOperation(PrimaryStorageInventory pri) {
+    public List<HostInventory> getConnectedHostForOperation(PrimaryStorageInventory pri, int startPage, int pageLimit) {
         if (pri.getAttachedClusterUuids().isEmpty()) {
             throw new OperationFailureException(operr("cannot find a Connected host to execute command for nfs primary storage[uuid:%s]", pri.getUuid()));
         }
 
-        String sql = "select h from HostVO h where h.state = :state and h.status = :connectionState and h.clusterUuid in (:clusterUuids)";
+        String sql = "select h from HostVO h, PrimaryStorageHostRefVO ref where h.state = :state and h.status = :connectionState and h.clusterUuid in (:clusterUuids) and not(ref.hostUuid = h.uuid and ref.primaryStorageUuid = :psUuid and ref.status = :status)";
         TypedQuery<HostVO> q = dbf.getEntityManager().createQuery(sql, HostVO.class);
         q.setParameter("state", HostState.Enabled);
         q.setParameter("connectionState", HostStatus.Connected);
         q.setParameter("clusterUuids", pri.getAttachedClusterUuids());
-        q.setMaxResults(1);
+        q.setParameter("psUuid", pri.getUuid());
+        q.setParameter("status", PrimaryStorageHostStatus.Disconnected);
+        q.setFirstResult(startPage * pageLimit);
+        if (pageLimit > 0){
+            q.setMaxResults(pageLimit);
+        }
+
         List<HostVO> ret = q.getResultList();
-        if (ret.isEmpty()) {
+        if (ret.isEmpty() && q.getFirstResult() == 0) {
             throw new OperationFailureException(operr("cannot find a Connected host to execute command for nfs primary storage[uuid:%s]", pri.getUuid()));
         } else {
             Collections.shuffle(ret);
-            return HostInventory.valueOf(ret.get(0));
+            return HostInventory.valueOf(ret);
         }
+    }
+
+    public List<HostInventory> getConnectedHostForOperation(PrimaryStorageInventory pri) {
+        return getConnectedHostForOperation(pri, 0, 0);
     }
 
     @Override

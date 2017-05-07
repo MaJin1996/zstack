@@ -369,13 +369,14 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
 
     protected void handle(final RevertVolumeFromSnapshotOnPrimaryStorageMsg msg) {
         final RevertVolumeFromSnapshotOnPrimaryStorageReply reply = new RevertVolumeFromSnapshotOnPrimaryStorageReply();
-
-        HostInventory destHost = factory.getConnectedHostForOperation(PrimaryStorageInventory.valueOf(self));
-        if (destHost == null) {
+        HostInventory destHost;
+        try {
+            destHost = factory.getConnectedHostForOperation(PrimaryStorageInventory.valueOf(self)).get(0);
+        }catch (OperationFailureException e){
             reply.setError(operr("no host in Connected status to which nfs primary storage[uuid:%s, name:%s] attached" +
-                                    " found to revert volume[uuid:%s] to snapshot[uuid:%s, name:%s]",
-                            self.getUuid(), self.getName(), msg.getVolume().getUuid(),
-                            msg.getSnapshot().getUuid(), msg.getSnapshot().getName()));
+                            " found to revert volume[uuid:%s] to snapshot[uuid:%s, name:%s]",
+                    self.getUuid(), self.getName(), msg.getVolume().getUuid(),
+                    msg.getSnapshot().getUuid(), msg.getSnapshot().getName()));
 
             bus.reply(msg, reply);
             return;
@@ -400,7 +401,7 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
     protected  void handle(final ReInitRootVolumeFromTemplateOnPrimaryStorageMsg msg) {
         final ReInitRootVolumeFromTemplateOnPrimaryStorageReply reply = new ReInitRootVolumeFromTemplateOnPrimaryStorageReply();
 
-        HostInventory destHost = factory.getConnectedHostForOperation(PrimaryStorageInventory.valueOf(self));
+        HostInventory destHost = factory.getConnectedHostForOperation(PrimaryStorageInventory.valueOf(self)).get(0);
         if (destHost == null) {
             reply.setError(operr("no host in Connected status to which nfs primary storage[uuid:%s, name:%s] attached" +
                             " found to revert volume[uuid:%s] to image[uuid:%s]",
@@ -483,7 +484,7 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
 
             huuid = VmInstanceState.Running == vmState ? hostUuid : lastHostUuid;
         } else {
-            HostInventory host = factory.getConnectedHostForOperation(getSelfInventory());
+            HostInventory host = factory.getConnectedHostForOperation(getSelfInventory()).get(0);
             huuid = host.getUuid();
         }
 

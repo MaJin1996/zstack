@@ -1,34 +1,24 @@
 package org.zstack.test.integration.storage.primary.nfs
 
 import org.springframework.http.HttpEntity
-import org.zstack.core.cloudbus.CanonicalEvent
-import org.zstack.core.cloudbus.CloudBus
 import org.zstack.core.cloudbus.EventCallback
 import org.zstack.core.cloudbus.EventFacade
 import org.zstack.core.db.Q
 import org.zstack.header.Constants
 import org.zstack.header.agent.AgentResponse
-import org.zstack.header.host.Host
 import org.zstack.header.host.HostCanonicalEvents
-import org.zstack.header.host.HostConstant
 import org.zstack.header.host.HostStatus
-import org.zstack.header.host.HostStatusChangedEvent
-import org.zstack.header.host.HostStatusEvent
 import org.zstack.header.host.HostVO
 import org.zstack.header.host.HostVO_
-import org.zstack.header.host.ReconnectHostMsg
-import org.zstack.header.host.ReconnectHostReply
-import org.zstack.header.message.AbstractBeforePublishEventInterceptor
-import org.zstack.header.message.AbstractBeforeSendMessageInterceptor
-import org.zstack.header.message.Event
-import org.zstack.header.message.Message
+import org.zstack.header.storage.primary.PrimaryStorageHostRefVO
+import org.zstack.header.storage.primary.PrimaryStorageHostRefVO_
+import org.zstack.header.storage.primary.PrimaryStorageHostStatus
 import org.zstack.header.storage.primary.PrimaryStorageVO
 import org.zstack.header.storage.primary.PrimaryStorageVO_
 import org.zstack.sdk.AttachPrimaryStorageToClusterAction
 import org.zstack.sdk.HostInventory
 import org.zstack.sdk.PrimaryStorageInventory
 import org.zstack.sdk.ClusterInventory
-import org.zstack.sdk.ReconnectBackupStorageAction
 import org.zstack.sdk.ReconnectHostAction
 import org.zstack.sdk.ReconnectPrimaryStorageAction
 import org.zstack.sdk.UpdatePrimaryStorageAction
@@ -37,7 +27,6 @@ import org.zstack.storage.primary.nfs.NfsPrimaryStorageKVMBackendCommands
 import org.zstack.test.integration.storage.Env
 import org.zstack.test.integration.storage.StorageTest
 import org.zstack.testlib.EnvSpec
-import org.zstack.testlib.HttpError
 import org.zstack.testlib.NfsPrimaryStorageSpec
 import org.zstack.testlib.SubCase
 import org.zstack.utils.Utils
@@ -218,14 +207,10 @@ class InvalidUrlCase extends SubCase {
             sessionId = currentEnvSpec.session.uuid
         }
 
-        retryInSecs(){
-            List<HostInventory> hostInvs = queryHost {
-                conditions = ["status=${HostStatus.Disconnected}"]
-            }as List<HostInventory>
-
-            assert hostInvs.size() == 1
-        }
-
+        assert Q.New(PrimaryStorageHostRefVO.class).select(PrimaryStorageHostRefVO_.status)
+                .eq(PrimaryStorageHostRefVO_.hostUuid, host.uuid)
+                .eq(PrimaryStorageHostRefVO_.primaryStorageUuid, psInv.uuid)
+                .findValue() == PrimaryStorageHostStatus.Disconnected
         assert Q.New(PrimaryStorageVO.class)
                 .eq(PrimaryStorageVO_.uuid, psInv.uuid)
                 .select(PrimaryStorageVO_.url).findValue() == "172.20.11.11:/true/directory"
@@ -246,7 +231,6 @@ class InvalidUrlCase extends SubCase {
         ReconnectHostAction a = new ReconnectHostAction()
         a.uuid = host.uuid
         a.sessionId = currentEnvSpec.session.uuid
-
         assert a.call().error != null
 
     }

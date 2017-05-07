@@ -763,6 +763,7 @@ ALTER TABLE `zstack`.`VirtualRouterLoadBalancerRefVO` ADD CONSTRAINT fkVirtualRo
 ALTER TABLE `zstack`.`VirtualRouterLoadBalancerRefVO` ADD UNIQUE INDEX(`virtualRouterVmUuid`,`loadBalancerUuid`);
 
 
+
 UPDATE InstanceOfferingVO SET allocatorStrategy="LeastVmPreferredHostAllocatorStrategy" WHERE allocatorStrategy="Mevoco";
 
 UPDATE VmInstanceVO SET allocatorStrategy="LeastVmPreferredHostAllocatorStrategy" WHERE allocatorStrategy="Mevoco";
@@ -779,6 +780,18 @@ CREATE TABLE  `zstack`.`WebhookVO` (
     PRIMARY KEY  (`uuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
+
 # Foreign keys for table LoadBalancerListenerVO
 ALTER TABLE LoadBalancerListenerVO DROP FOREIGN KEY fkLoadBalancerListenerVOLoadBalancerVO;
 ALTER TABLE LoadBalancerListenerVO ADD CONSTRAINT fkLoadBalancerListenerVOLoadBalancerVO FOREIGN KEY (loadBalancerUuid) REFERENCES LoadBalancerVO (uuid) ON DELETE RESTRICT ;
+
+CREATE TABLE  `zstack`.`PrimaryStorageHostRefVO` (
+     `primaryStorageUuid` varchar(32) NOT NULL,
+     `hostUuid` varchar(32) NOT NULL,
+     `status` varchar(32) NOT NULL,
+     `createDate` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+     `lastOpDate` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT `fkPrimaryStorageHostRefVOPrimaryStorageEO` FOREIGN KEY (`primaryStorageUuid`) REFERENCES `zstack`.`PrimaryStorageEO` (`uuid`) ON DELETE CASCADE,
+      CONSTRAINT `fkPrimaryStorageHostRefVOHostEO` FOREIGN KEY (`hostUuid`) REFERENCES `zstack`.`HostEO` (`uuid`) ON DELETE CASCADE,
+      UNIQUE INDEX (`primaryStorageUuid`, `hostUuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;

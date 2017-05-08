@@ -1,9 +1,11 @@
 package org.zstack.header.storage.primary;
 
+import java.io.Serializable;
+
 /**
  * Created by Administrator on 2017-05-08.
  */
-public class CompositePrimaryKeyForPrimaryStorageHostRefVO {
+public class CompositePrimaryKeyForPrimaryStorageHostRefVO implements Serializable {
     private String hostUuid;
     private String primaryStorageUuid;
 
@@ -22,4 +24,5 @@ public class CompositePrimaryKeyForPrimaryStorageHostRefVO {
     public void setPrimaryStorageUuid(String primaryStorageUuid) {
         this.primaryStorageUuid = primaryStorageUuid;
     }
+
 }

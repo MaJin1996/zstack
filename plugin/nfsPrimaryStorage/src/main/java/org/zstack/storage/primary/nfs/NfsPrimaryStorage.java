@@ -9,6 +9,7 @@ import org.zstack.core.cloudbus.AutoOffEventCallback;
 import org.zstack.core.cloudbus.CloudBusCallBack;
 import org.zstack.core.cloudbus.EventFacade;
 import org.zstack.core.db.Q;
+import org.zstack.core.db.SQLBatch;
 import org.zstack.core.db.SimpleQuery;
 import org.zstack.core.db.SimpleQuery.Op;
 import org.zstack.core.errorcode.ErrorFacade;
@@ -580,6 +581,15 @@ public class NfsPrimaryStorage extends PrimaryStorageBase {
                 if(ret){
                     changeStatus(PrimaryStorageStatus.Connected);
                 }
+                new SQLBatch(){
+                    @Override
+                    protected void scripts() {
+                        Q.New(HostVO.class).select(HostVO_.uuid)
+                                .eq(HostVO_.clusterUuid, clusterUuid)
+                                .listValues().forEach(huuid ->
+                                factory.updateNfsHostStatus(self.getUuid(), (String)huuid, PrimaryStorageHostStatus.Connected));
+                    }
+                }.execute();
                 completion.success();
             }
 

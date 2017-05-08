@@ -1,7 +1,11 @@
 package org.zstack.header.storage.primary;
 
 import org.zstack.header.host.HostEO;
+import org.zstack.header.host.HostVO;
 import org.zstack.header.vo.ForeignKey;
+import org.zstack.header.vo.SoftDeletionCascade;
+import org.zstack.header.vo.SoftDeletionCascades;
+
 
 import javax.persistence.*;
 import java.sql.Timestamp;
@@ -12,6 +16,10 @@ import java.sql.Timestamp;
 
 @Entity
 @Table
+@SoftDeletionCascades({
+        @SoftDeletionCascade(parent = PrimaryStorageVO.class, joinColumn = "primaryStorageUuid"),
+        @SoftDeletionCascade(parent = HostVO.class, joinColumn = "hostUuid")
+})
 @IdClass(CompositePrimaryKeyForPrimaryStorageHostRefVO.class)
 public class PrimaryStorageHostRefVO {
     @Column

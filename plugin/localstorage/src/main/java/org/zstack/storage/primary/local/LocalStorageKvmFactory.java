@@ -14,9 +14,7 @@ import org.zstack.header.host.AddHostMessage;
 import org.zstack.header.host.FailToAddHostExtensionPoint;
 import org.zstack.header.host.HostInventory;
 import org.zstack.header.message.MessageReply;
-import org.zstack.header.storage.primary.PrimaryStorageConstant;
-import org.zstack.header.storage.primary.PrimaryStorageVO;
-import org.zstack.header.storage.primary.RecalculatePrimaryStorageCapacityMsg;
+import org.zstack.header.storage.primary.*;
 import org.zstack.kvm.KVMConstant;
 import org.zstack.kvm.KVMHostConnectExtensionPoint;
 import org.zstack.kvm.KVMHostConnectedContext;
@@ -103,12 +101,20 @@ public class LocalStorageKvmFactory implements LocalStorageHypervisorFactory, KV
         bus.send(msg, new CloudBusCallBack(trigger) {
             @Override
             public void run(MessageReply reply) {
+                PrimaryStorageHostRefVO ref = new PrimaryStorageHostRefVO();
+                ref.setHostUuid(context.getInventory().getUuid());
+                ref.setPrimaryStorageUuid(priUuid);
                 if (!reply.isSuccess()) {
-                    trigger.fail(operr("KVM host[uuid: %s] fails to be added into local primary storage[uuid: %s], %s",
-                            context.getInventory().getUuid(), priUuid, reply.getError()));
-                } else {
-                    initLocalStorage(iterator, trigger, data, context);
+                    ref.setStatus(PrimaryStorageHostStatus.Disconnected);
+                    logger.warn(operr("KVM host[uuid: %s] fails to be added into local primary storage[uuid: %s], %s",
+                            context.getInventory().getUuid(), priUuid, reply.getError()).toString());
+                }else {
+                    ref.setStatus(PrimaryStorageHostStatus.Connected);
+                    logger.debug(String.format("KVM host[uuid: %s] succeed to be added into local primary storage[uuid: %s]",
+                            context.getInventory().getUuid(), priUuid));
                 }
+                dbf.update(ref);
+                initLocalStorage(iterator, trigger, data, context);
             }
         });
     }

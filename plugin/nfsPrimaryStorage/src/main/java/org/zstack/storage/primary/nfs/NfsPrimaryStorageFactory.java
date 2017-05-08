@@ -34,10 +34,14 @@ import org.zstack.storage.primary.PrimaryStorageSystemTags;
 import org.zstack.storage.primary.nfs.NfsPrimaryStorageKVMBackendCommands.NfsPrimaryStorageAgentResponse;
 import org.zstack.tag.SystemTagCreator;
 import org.zstack.tag.TagManager;
+import org.zstack.utils.Utils;
+import org.zstack.utils.logging.CLogger;
 import org.zstack.utils.path.PathUtil;
 
 import static org.zstack.core.Platform.operr;
 
+import javax.persistence.LockModeType;
+import javax.persistence.Query;
 import javax.persistence.TypedQuery;
 import java.util.Collections;
 import java.util.HashMap;
@@ -50,6 +54,8 @@ import static org.zstack.utils.CollectionDSL.map;
 
 public class NfsPrimaryStorageFactory implements NfsPrimaryStorageManager, PrimaryStorageFactory, Component, CreateTemplateFromVolumeSnapshotExtensionPoint, RecalculatePrimaryStorageCapacityExtensionPoint,
         PrimaryStorageDetachExtensionPoint, HostDeleteExtensionPoint{
+    private static CLogger logger = Utils.getLogger(NfsPrimaryStorageFactory.class);
+
     @Autowired
     private DatabaseFacade dbf;
     @Autowired
@@ -208,13 +214,17 @@ public class NfsPrimaryStorageFactory implements NfsPrimaryStorageManager, Prima
             throw new OperationFailureException(operr("cannot find a Connected host to execute command for nfs primary storage[uuid:%s]", pri.getUuid()));
         }
 
-        String sql = "select h from HostVO h, PrimaryStorageHostRefVO ref where h.state = :state and h.status = :connectionState and h.clusterUuid in (:clusterUuids) and not(ref.hostUuid = h.uuid and ref.primaryStorageUuid = :psUuid and ref.status = :status)";
+        String sql = "select h from HostVO h " +
+                "where h.state = :state and h.status = :connectionState and h.clusterUuid in (:clusterUuids) " +
+                "and h.uuid not in (select ref.hostUuid from PrimaryStorageHostRefVO ref " +
+                "where ref.primaryStorageUuid = :psUuid and ref.hostUuid = h.uuid and ref.status = :status)";
         TypedQuery<HostVO> q = dbf.getEntityManager().createQuery(sql, HostVO.class);
         q.setParameter("state", HostState.Enabled);
         q.setParameter("connectionState", HostStatus.Connected);
         q.setParameter("clusterUuids", pri.getAttachedClusterUuids());
         q.setParameter("psUuid", pri.getUuid());
         q.setParameter("status", PrimaryStorageHostStatus.Disconnected);
+
         q.setFirstResult(startPage * pageLimit);
         if (pageLimit > 0){
             q.setMaxResults(pageLimit);
@@ -224,6 +234,7 @@ public class NfsPrimaryStorageFactory implements NfsPrimaryStorageManager, Prima
         if (ret.isEmpty() && q.getFirstResult() == 0) {
             throw new OperationFailureException(operr("cannot find a Connected host to execute command for nfs primary storage[uuid:%s]", pri.getUuid()));
         } else {
+            logger.debug("success all host");
             Collections.shuffle(ret);
             return HostInventory.valueOf(ret);
         }
@@ -231,6 +242,14 @@ public class NfsPrimaryStorageFactory implements NfsPrimaryStorageManager, Prima
 
     public List<HostInventory> getConnectedHostForOperation(PrimaryStorageInventory pri) {
         return getConnectedHostForOperation(pri, 0, 0);
+    }
+
+    public final void updateNfsHostStatus(String psUuid, String huuid, PrimaryStorageHostStatus status){
+        PrimaryStorageHostRefVO ref = new PrimaryStorageHostRefVO();
+        ref.setPrimaryStorageUuid(psUuid);
+        ref.setHostUuid(huuid);
+        ref.setStatus(status);
+        dbf.getEntityManager().merge(ref);
     }
 
     @Override

@@ -10,9 +10,7 @@ import org.zstack.core.asyncbatch.While;
 import org.zstack.core.cloudbus.CloudBus;
 import org.zstack.core.cloudbus.CloudBusCallBack;
 import org.zstack.core.cloudbus.CloudBusListCallBack;
-import org.zstack.core.db.DatabaseFacade;
-import org.zstack.core.db.Q;
-import org.zstack.core.db.SimpleQuery;
+import org.zstack.core.db.*;
 import org.zstack.core.db.SimpleQuery.Op;
 import org.zstack.core.errorcode.ErrorFacade;
 import org.zstack.core.errorcode.schema.Error;
@@ -200,7 +198,7 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
             @Override
             public void done() {
                 if(!errs.isEmpty()){
-                    completion.fail(errs.get(0));
+                    completion.fail(operr("%s",errs));
                 }else {
                     completion.success(true);
                 }
@@ -280,6 +278,18 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
         } else {
             String info = String.format("Successfully unmount nfs primary storage[uuid:%s] on kvm host[uuid:%s]", inv.getUuid(), hostUuid);
             logger.debug(info);
+
+            new SQLBatch(){
+                @Override
+                protected void scripts() {
+                    PrimaryStorageHostRefVO ref = Q.New(PrimaryStorageHostRefVO.class)
+                            .eq(PrimaryStorageHostRefVO_.hostUuid, hostUuid)
+                            .eq(PrimaryStorageHostRefVO_.primaryStorageUuid, inv.getUuid() )
+                            .find();
+                    ref.setStatus(PrimaryStorageHostStatus.Disconnected);
+                    merge(ref);
+                }
+            }.execute();
         }
     }
 
@@ -293,6 +303,11 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
         for (String huuid : hostUuids) {
             unmount(inv, huuid);
         }
+        logger.debug("remove host ref in nfs");
+        SQL.New(PrimaryStorageHostRefVO.class)
+                .eq(PrimaryStorageHostRefVO_.primaryStorageUuid, inv.getUuid())
+                .in(PrimaryStorageHostRefVO_.hostUuid, hostUuids)
+                .hardDelete();
     }
 
     @Override
@@ -309,17 +324,17 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                 .in(HostVO_.clusterUuid, inv.getAttachedClusterUuids())
                 .count();
 
-        List<Integer> step = new ArrayList<>();
+        List<Integer> steps = new ArrayList<>();
         for(int i = 0; i <= count/stepLimit; i ++){
-            step.add(i);
+            steps.add(i);
         }
 
         List<ErrorCode> errs = new ArrayList<>();
-        new While<>(step).each((s, compl) -> {
-            pingStep(inv, s, stepLimit, new Completion(compl) {
+        new While<>(steps).each((step, compl) -> {
+            pingStep(inv, step, stepLimit, new Completion(compl) {
                 @Override
                 public void success() {
-                    step.clear();
+                    steps.clear();
                     compl.done();
                 }
 
@@ -332,7 +347,7 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
         }).run(new NoErrorCompletion(completion) {
             @Override
             public void done() {
-                if(step.isEmpty()){
+                if(steps.isEmpty()){
                     completion.success();
                 }else {
                     completion.fail(errs.get(0));
@@ -363,6 +378,7 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                         ErrorCode err = operr("failed to ping nfs primary storage[uuid:%s] from host[uuid:%s],because %s. " +
                                         "disconnect this host",
                                 inv.getUuid(), host.getUuid(), reply.isSuccess() ? rsp.getError() : reply.getError());
+                        nfsFactory.updateNfsHostStatus(inv.getUuid(), host.getUuid(), PrimaryStorageHostStatus.Disconnected);
                         logger.warn(err.toString());
                         errs.add(reply.getError());
                     }else {
@@ -1012,19 +1028,15 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
 
     @Override
     public void remount(final PrimaryStorageInventory pinv, String clusterUuid, final Completion completion) {
-        SimpleQuery<HostVO> q = dbf.createQuery(HostVO.class);
-        q.select(HostVO_.uuid);
-        q.add(HostVO_.clusterUuid, Op.EQ, clusterUuid);
-        q.add(HostVO_.status, Op.EQ, HostStatus.Connected);
-        final List<String> huuids = q.listValue();
-        if (huuids.isEmpty()) {
+        final List<HostInventory> hinvs = nfsFactory.getConnectedHostForOperation(pinv);
+        if (hinvs.isEmpty()) {
             completion.success();
             return;
         }
 
-        List<KVMHostAsyncHttpCallMsg> msgs = CollectionUtils.transformToList(huuids, new Function<KVMHostAsyncHttpCallMsg, String>() {
+        List<KVMHostAsyncHttpCallMsg> msgs = CollectionUtils.transformToList(hinvs, new Function<KVMHostAsyncHttpCallMsg, HostInventory>() {
             @Override
-            public KVMHostAsyncHttpCallMsg call(String arg) {
+            public KVMHostAsyncHttpCallMsg call(HostInventory arg) {
                 RemountCmd cmd = new RemountCmd();
                 cmd.setUuid(pinv.getUuid());
                 cmd.url = pinv.getUrl();
@@ -1034,9 +1046,9 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                 KVMHostAsyncHttpCallMsg msg = new KVMHostAsyncHttpCallMsg();
                 msg.setCommand(cmd);
                 msg.setCommandTimeout(timeoutMgr.getTimeout(cmd.getClass(), "5m"));
-                msg.setHostUuid(arg);
+                msg.setHostUuid(arg.getUuid());
                 msg.setPath(REMOUNT_PATH);
-                bus.makeTargetServiceIdByResourceUuid(msg, HostConstant.SERVICE_ID, arg);
+                bus.makeTargetServiceIdByResourceUuid(msg, HostConstant.SERVICE_ID, arg.getUuid());
                 return msg;
             }
         });
@@ -1059,10 +1071,11 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                 boolean success = false;
 
                 for (MessageReply re : replies) {
-                    String huuid = huuids.get(replies.indexOf(re));
+                    String huuid = hinvs.get(replies.indexOf(re)).getUuid();
 
                     if (!re.isSuccess()) {
                         errors.add(re.getError());
+                        nfsFactory.updateNfsHostStatus(pinv.getUuid(), huuid, PrimaryStorageHostStatus.Disconnected);
                         reconnectHost(huuid, re.getError());
                         continue;
                     }
@@ -1072,6 +1085,7 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                     if (!rsp.isSuccess()) {
                         ErrorCode err = operr(rsp.getError());
                         errors.add(err);
+                        nfsFactory.updateNfsHostStatus(pinv.getUuid(), huuid, PrimaryStorageHostStatus.Disconnected);
                         reconnectHost(huuid, err);
                         continue;
                     }
@@ -1152,11 +1166,7 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                                         pinv.getUuid(), pinv.getName(), oldMountPoint, newMountPoint, clusterUuid, hostUuid, errorCode));
 
                                 //TODO: need notification to UI
-                                ChangeHostConnectionStateMsg cmsg = new ChangeHostConnectionStateMsg();
-                                cmsg.setConnectionStateEvent(HostStatusEvent.disconnected.toString());
-                                cmsg.setHostUuid(hostUuid);
-                                bus.makeTargetServiceIdByResourceUuid(cmsg, HostConstant.SERVICE_ID, hostUuid);
-                                bus.send(cmsg);// disconnected host will always return success
+                                nfsFactory.updateNfsHostStatus(pinv.getUuid(), hostUuid, PrimaryStorageHostStatus.Disconnected);
                                 completion.done();
                             }
                         });
@@ -1188,15 +1198,14 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                     trigger.next();
                     return;
                 }
-
-                new Log(context.getInventory().getUuid()).log(NfsPrimaryStorageLabels.INIT);
+                String huuid = context.getInventory().getUuid();
+                new Log(huuid).log(NfsPrimaryStorageLabels.INIT);
 
                 if (context.isNewAddedHost() && !CoreGlobalProperty.UNIT_TEST_ON && !invs.isEmpty()) {
                     checkQemuImgVersionInOtherClusters(context, invs);
                 }
 
-                List<KVMHostAsyncHttpCallMsg> msgs = new ArrayList<KVMHostAsyncHttpCallMsg>();
-                for (PrimaryStorageInventory inv : invs) {
+                new While<>(invs).all((inv, completion) -> {
                     RemountCmd cmd = new RemountCmd();
                     cmd.mountPath = inv.getMountPath();
                     cmd.url = inv.getUrl();
@@ -1207,28 +1216,33 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                     msg.setCommand(cmd);
                     msg.setNoStatusCheck(true);
                     msg.setPath(REMOUNT_PATH);
-                    msg.setHostUuid(context.getInventory().getUuid());
+                    msg.setHostUuid(huuid);
                     msg.setCommandTimeout(timeoutMgr.getTimeout(cmd.getClass(), "5m"));
                     bus.makeTargetServiceIdByResourceUuid(msg, HostConstant.SERVICE_ID, msg.getHostUuid());
-                    msgs.add(msg);
-                }
-
-                bus.send(msgs, new CloudBusListCallBack(trigger) {
-                    @Override
-                    public void run(List<MessageReply> replies) {
-                        for (MessageReply reply : replies) {
+                    bus.send(msg, new CloudBusCallBack(completion) {
+                        @Override
+                        public void run(MessageReply reply) {
                             if (!reply.isSuccess()) {
-                                throw new OperationFailureException(reply.getError());
+                                //TODO: need notification to UI
+                                nfsFactory.updateNfsHostStatus(inv.getUuid(), huuid, PrimaryStorageHostStatus.Disconnected);
+                                logger.warn(String.format("fail to mount nfs[uuid:%s] from host[uuid:%s], because:%s"
+                                        ,inv.getUuid(), huuid, reply.getError().toString()));
+                                completion.done();
+                                return;
                             }
 
                             KVMHostAsyncHttpCallReply r = reply.castReply();
                             final NfsPrimaryStorageAgentResponse rsp = r.toResponse(NfsPrimaryStorageAgentResponse.class);
 
                             if (!rsp.isSuccess()) {
-                                throw new OperationFailureException(operr(rsp.getError()));
+                                //TODO: need notification to UI
+                                nfsFactory.updateNfsHostStatus(inv.getUuid(), huuid, PrimaryStorageHostStatus.Disconnected);
+                                logger.warn(String.format("fail to mount nfs[uuid:%s] from host[uuid:%s], because:%s"
+                                        ,inv.getUuid(), huuid, rsp.getError()));
+                                completion.done();
+                                return;
                             }
 
-                            PrimaryStorageInventory inv = invs.get(replies.indexOf(reply));
                             new PrimaryStorageCapacityUpdater(inv.getUuid()).run(new PrimaryStorageCapacityUpdaterRunnable() {
                                 @Override
                                 public PrimaryStorageCapacityVO call(PrimaryStorageCapacityVO cap) {
@@ -1253,8 +1267,17 @@ public class NfsPrimaryStorageKVMBackend implements NfsPrimaryStorageBackend,
                                 bus.makeTargetServiceIdByResourceUuid(cmsg, PrimaryStorageConstant.SERVICE_ID, inv.getUuid());
                                 bus.call(cmsg);
                             }
-                        }
 
+                            nfsFactory.updateNfsHostStatus(inv.getUuid(), huuid, PrimaryStorageHostStatus.Connected);
+                            logger.debug(String.format("succeed to mount nfs[uuid:%s] from host[uuid:%s]"
+                                    ,inv.getUuid(), huuid));
+                            completion.done();
+                        }
+                    });
+
+                }).run(new NoErrorCompletion(trigger) {
+                    @Override
+                    public void done() {
                         trigger.next();
                     }
                 });

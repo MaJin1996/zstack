@@ -16,3 +16,6 @@ CREATE TABLE `SnapShotUsageVO` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+ALTER TABLE SecurityGroupRuleVO ADD COLUMN `remoteSecurityGroupUuid` varchar(255) DEFAULT NULL;
+ALTER TABLE SecurityGroupRuleVO ADD CONSTRAINT fkSecurityGroupRuleVOSecurityGroupVO FOREIGN KEY (remoteSecurityGroupUuid) REFERENCES SecurityGroupVO (uuid) ON DELETE CASCADE ;

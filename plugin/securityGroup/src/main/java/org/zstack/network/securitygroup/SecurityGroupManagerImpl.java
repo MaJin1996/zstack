@@ -253,32 +253,13 @@ public class SecurityGroupManagerImpl extends AbstractService implements Securit
             List<RuleTO> ret = new ArrayList<>();
 
             for (String sgUuid : sgUuids) {
-                String sql = "select r from SecurityGroupRuleVO r where r.securityGroupUuid = :sgUuid";
+                String sql = "select r from SecurityGroupRuleVO r where r.securityGroupUuid = :sgUuid" +
+                        " and r.remoteSecurityGroupUuid is null";
                 TypedQuery<SecurityGroupRuleVO> q = dbf.getEntityManager().createQuery(sql, SecurityGroupRuleVO.class);
                 q.setParameter("sgUuid", sgUuid);
                 List<SecurityGroupRuleVO> rules = q.getResultList();
                 if (rules.isEmpty()) {
                     continue;
-                }
-
-                sql = "select nic.ip" +
-                        " from VmNicVO nic, VmNicSecurityGroupRefVO ref" +
-                        " where ref.vmNicUuid = nic.uuid" +
-                        " and ref.securityGroupUuid = :sgUuid" +
-                        " and nic.l3NetworkUuid = :l3Uuid" +
-                        " and nic.ip is not null";
-                TypedQuery<String> internalIpQuery = dbf.getEntityManager().createQuery(sql, String.class);
-                internalIpQuery.setParameter("sgUuid", sgUuid);
-                internalIpQuery.setParameter("l3Uuid", l3Uuid);
-                List<String> internalIps = internalIpQuery.getResultList();
-                List<Pair<String, String>> ipRanges = NetworkUtils.findConsecutiveIpRange(internalIps);
-                List<String> internalIpRanges = new ArrayList<>(ipRanges.size());
-                for (Pair<String, String> p : ipRanges) {
-                    if (p.first().equals(p.second())) {
-                        internalIpRanges.add(p.first());
-                    } else {
-                        internalIpRanges.add(String.format("%s-%s", p.first(), p.second()));
-                    }
                 }
 
                 for (SecurityGroupRuleVO r : rules) {
@@ -288,7 +269,6 @@ public class SecurityGroupManagerImpl extends AbstractService implements Securit
                     rto.setProtocol(r.getProtocol().toString());
                     rto.setStartPort(r.getStartPort());
                     rto.setType(r.getType().toString());
-                    rto.setAllowedInternalIpRange(internalIpRanges);
                     ret.add(rto);
                 }
             }
@@ -303,6 +283,63 @@ public class SecurityGroupManagerImpl extends AbstractService implements Securit
             }
 
             return ret;
+        }
+
+        private List<RuleTO> calculateSecurityGroupBaseRule(List<String> sgUuids, String l3Uuid){
+            List<RuleTO> rules = new ArrayList<>();
+            for(String sgUuid : sgUuids){
+                RuleTO selfRule = new RuleTO();
+                selfRule.setSecurityGroupUuid(sgUuid);
+                selfRule.setRemoteGroupUuid(sgUuid);
+                selfRule.setRemoteGroupVmIps(getVmIpsBySecurityGroup(sgUuid, l3Uuid));
+                rules.add(selfRule);
+
+                String sql = "select r from SecurityGroupRuleVO r where r.securityGroupUuid = :sgUuid" +
+                        " and r.remoteSecurityGroupUuid is not null";
+                TypedQuery<SecurityGroupRuleVO> q = dbf.getEntityManager().createQuery(sql, SecurityGroupRuleVO.class);
+                q.setParameter("sgUuid", sgUuid);
+                List<SecurityGroupRuleVO> remoteRules = q.getResultList();
+
+                for(SecurityGroupRuleVO r : remoteRules){
+                    RuleTO rule = new RuleTO();
+                    rule.setStartPort(r.getStartPort());
+                    rule.setEndPort(r.getEndPort());
+                    rule.setProtocol(r.getProtocol().toString());
+                    rule.setType(r.getType().toString());
+                    rule.setSecurityGroupUuid(sgUuid);
+                    rule.setRemoteGroupUuid(r.getRemoteSecurityGroupUuid());
+                    // TODO: the same group only transport once
+                    rule.setRemoteGroupVmIps(getVmIpsBySecurityGroup(sgUuid, l3Uuid));
+                    rules.add(rule);
+                }
+            }
+            return rules;
+
+        }
+
+        private List<String> getVmIpsBySecurityGroup(String sgUuid, String l3Uuid){
+            String sql = "select nic.ip" +
+                    " from VmNicVO nic, VmNicSecurityGroupRefVO ref" +
+                    " where ref.vmNicUuid = nic.uuid" +
+                    " and ref.securityGroupUuid = :sgUuid" +
+                    " and nic.l3NetworkUuid = :l3Uuid" +
+                    " and nic.ip is not null";
+            TypedQuery<String> internalIpQuery = dbf.getEntityManager().createQuery(sql, String.class);
+            internalIpQuery.setParameter("sgUuid", sgUuid);
+            internalIpQuery.setParameter("l3Uuid", l3Uuid);
+            List<String> internalIps = internalIpQuery.getResultList();
+                /*
+                List<Pair<String, String>> ipRanges = NetworkUtils.findConsecutiveIpRange(internalIps);
+                List<String> internalIpRanges = new ArrayList<String>(ipRanges.size());
+                for (Pair<String, String> p : ipRanges) {
+                    if (p.first().equals(p.second())) {
+                        internalIpRanges.add(p.first());
+                    } else {
+                        internalIpRanges.add(String.format("%s-%s", p.first(), p.second()));
+                    }
+                }
+                */
+            return internalIps;
         }
 
         @Transactional(readOnly = true)
@@ -392,6 +429,8 @@ public class SecurityGroupManagerImpl extends AbstractService implements Securit
                 }
 
                 List<RuleTO> rtos = calculateRuleTOBySecurityGroup(sgUuids, l3Uuid);
+                List<RuleTO> securityGroupBaseRules = calculateSecurityGroupBaseRule(sgUuids, l3Uuid);
+
                 SecurityGroupRuleTO sgto = new SecurityGroupRuleTO();
                 sgto.setEgressDefaultPolicy(SecurityGroupGlobalConfig.EGRESS_RULE_DEFAULT_POLICY.value(String.class));
                 sgto.setIngressDefaultPolicy(SecurityGroupGlobalConfig.INGRESS_RULE_DEFAULT_POLICY.value(String.class));
@@ -400,6 +439,7 @@ public class SecurityGroupManagerImpl extends AbstractService implements Securit
                 sgto.setVmNicInternalName(nicName);
                 sgto.setVmNicMac(mac);
                 sgto.setVmNicIp(ip);
+                sgto.setSecurityGroupBaseRules(securityGroupBaseRules);
 
                 HostRuleTO hto = hostRuleMap.get(hostUuid);
                 if (hto == null) {
